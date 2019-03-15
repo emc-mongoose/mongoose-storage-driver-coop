@@ -181,16 +181,16 @@ publishing {
 			pom {
 				name = project.name
 				description = project.description
-				url = "https://github.com/emc-mongoose/mongoose-base"
+				url = "https://github.com/emc-mongoose/mongoose-storage-driver-coop"
 				scm {
-					connection = "https://github.com/emc-mongoose/mongoose-base.git"
-					developerConnection = "https://github.com/emc-mongoose/mongoose-base.git"
-					url = "https://github.com/emc-mongoose/mongoose-base.git"
+					connection = "https://github.com/emc-mongoose/mongoose-storage-driver-coop.git"
+					developerConnection = "https://github.com/emc-mongoose/mongoose-storage-driver-coop.git"
+					url = "https://github.com/emc-mongoose/mongoose-storage-driver-coop.git"
 				}
 				licenses {
 					license {
 						name = "The MIT License (MIT)"
-						url = "https://github.com/emc-mongoose/mongoose-base/LICENSE"
+						url = "https://github.com/emc-mongoose/mongoose-storage-driver-coop/LICENSE"
 					}
 				}
 				developers {
