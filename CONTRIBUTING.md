@@ -249,21 +249,11 @@ SUITE=api.storage TEST=s3 ./gradlew clean robotest
    ```bash
    git tag -d latest
    git push origin :refs/tags/latest
-   git tag -a <X>.<Y>.<Z> -m <X>.<Y>.<Z>
-   git tag -a latest -m <X>.<Y>.<Z>
+   git tag -a latest -m latest
    git push --tags --force
    ```
-5. Create the corresponding version branch `release-v<X>.<Y>.<Z>` and set the version in the configuration to
-   <X>.<Y>.<Z>
-6. Deploy docker images, set the `<X>.<Y>.<Z>` and `latest` tags also for the Docker images.
-7. Upload the artifacts to the Central Maven repo:
-   1.
-    ```bash
-    ./gradlew clean uploadArchives
-    ```
-   2. Go to the https://oss.sonatype.org/#stagingRepositories find the corresponding repository, close and then release
-      it.
-8. Update the projects depending on the Mongoose's API (storage drivers, at least)
+5. Merge to the `release` branch
+6. Update the projects depending on the Mongoose's API (storage drivers, at least)
 
 # 5. Code
 
