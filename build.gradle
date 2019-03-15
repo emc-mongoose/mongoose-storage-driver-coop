@@ -84,6 +84,7 @@ dependencies {
 
 test {
 	useJUnit()
+	exclude "com/emc/mongoose/integration/*"
 	jvmArgs "-XX:MaxDirectMemorySize=2g"
 	jvmArgs "-XX:+HeapDumpOnOutOfMemoryError"
 	maxHeapSize "2g"
@@ -95,6 +96,23 @@ test {
 		showStandardStreams = true
 	}
 }
+
+task integrationTest(type: Test) {
+	useJUnit()
+	include "com/emc/mongoose/integration/*"
+	exclude "**/RollingAppenderTest*"
+	jvmArgs "-XX:MaxDirectMemorySize=2g"
+	jvmArgs "-XX:+HeapDumpOnOutOfMemoryError"
+	maxHeapSize "2g"
+	testLogging {
+		events = [
+			"standardOut", "skipped", "started", "failed",
+		]
+		showExceptions = true
+		showStandardStreams = true
+	}
+}
+
 
 jar {
 	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
