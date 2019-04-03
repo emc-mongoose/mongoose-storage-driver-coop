@@ -22,7 +22,7 @@ repositories {
 	jcenter()
 	mavenCentral()
 	maven {
-		url "https://oss.sonatype.org/content/repositories/comgithubemc-mongoose-1368"
+		url "https://oss.sonatype.org/content/repositories/comgithubemc-mongoose-1371"
 	}
 }
 
