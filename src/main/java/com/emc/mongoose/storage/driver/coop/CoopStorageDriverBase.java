@@ -2,6 +2,7 @@ package com.emc.mongoose.storage.driver.coop;
 
 import static com.emc.mongoose.base.Constants.KEY_CLASS_NAME;
 import static com.emc.mongoose.base.Constants.KEY_STEP_ID;
+import static com.emc.mongoose.base.item.op.Operation.Status.ACTIVE;
 import static com.github.akurilov.commons.lang.Exceptions.throwUnchecked;
 
 import com.emc.mongoose.base.concurrent.ServiceTaskExecutor;
@@ -29,11 +30,12 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 				extends StorageDriverBase<I, O> implements StorageDriver<I, O> {
 
 	protected final Semaphore concurrencyThrottle;
-	protected final BlockingQueue<O> childOpQueue;
-	private final BlockingQueue<O> inOpQueue;
+	protected final BlockingQueue<O> childOpsQueue;
+	private final BlockingQueue<O> incomingOpsQueue;
 	private final LongAdder scheduledOpCount = new LongAdder();
 	private final LongAdder completedOpCount = new LongAdder();
-	private final OperationDispatchTask opDispatchTask;
+	private final OperationDispatchTask childOpsDispatchTask;
+	private final OperationDispatchTask incomingOpsDispatchTask;
 
 	protected CoopStorageDriverBase(
 					final String testStepId,
@@ -44,16 +46,21 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 					throws IllegalConfigurationException {
 		super(testStepId, dataInput, storageConfig, verifyFlag);
 		final var inQueueLimit = storageConfig.intVal("driver-limit-queue-input");
-		this.childOpQueue = new ArrayBlockingQueue<>(inQueueLimit);
-		this.inOpQueue = new ArrayBlockingQueue<>(inQueueLimit);
+		this.childOpsQueue = new ArrayBlockingQueue<>(inQueueLimit);
+		this.childOpsDispatchTask = new OperationDispatchTask<>(
+			ServiceTaskExecutor.INSTANCE, this, childOpsQueue, stepId, batchSize
+		);
+		this.incomingOpsQueue = new ArrayBlockingQueue<>(inQueueLimit);
+		this.incomingOpsDispatchTask = new OperationDispatchTask<>(
+			ServiceTaskExecutor.INSTANCE, this, incomingOpsQueue, stepId, batchSize
+		);
 		this.concurrencyThrottle = new Semaphore(concurrencyLimit > 0 ? concurrencyLimit : Integer.MAX_VALUE, true);
-		this.opDispatchTask = new OperationDispatchTask<>(
-						ServiceTaskExecutor.INSTANCE, this, inOpQueue, childOpQueue, stepId, batchSize);
 	}
 
 	@Override
 	protected void doStart() throws IllegalStateException {
-		opDispatchTask.start();
+		childOpsDispatchTask.start();
+		incomingOpsDispatchTask.start();
 	}
 
 	@Override
@@ -61,7 +68,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		if (!isStarted()) {
 			throwUnchecked(new EOFException());
 		}
-		if (prepare(op) && inOpQueue.offer(op)) {
+		if (prepare(op) && incomingOpsQueue.offer(op)) {
 			scheduledOpCount.increment();
 			return true;
 		} else {
@@ -79,7 +86,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		O nextOp;
 		while (i < to && isStarted()) {
 			nextOp = ops.get(i);
-			if (prepare(nextOp) && inOpQueue.offer(ops.get(i))) {
+			if (prepare(nextOp) && incomingOpsQueue.offer(ops.get(i))) {
 				i++;
 			} else {
 				break;
@@ -98,7 +105,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		var n = 0;
 		for (final var nextOp : ops) {
 			if (isStarted()) {
-				if (prepare(nextOp) && inOpQueue.offer(nextOp)) {
+				if (prepare(nextOp) && incomingOpsQueue.offer(nextOp)) {
 					n++;
 				} else {
 					break;
@@ -150,16 +157,22 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 
 	@SuppressWarnings("unchecked")
 	protected final boolean handleCompleted(final O op) {
-		if (super.handleCompleted(op)) {
+		if(ACTIVE.equals(op.status())) {
+			if (childOpsQueue.offer(op)) {
+				return true;
+			} else {
+				Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
+				return false;
+			}
+		} else if (super.handleCompleted(op)) {
 			completedOpCount.increment();
 			if (op instanceof CompositeOperation) {
 				final var parentOp = (CompositeOperation) op;
 				if (!parentOp.allSubOperationsDone()) {
 					final List<O> subOps = parentOp.subOperations();
 					for (final O nextSubOp : subOps) {
-						if (!childOpQueue.offer(nextSubOp)) {
-							Loggers.ERR.warn(
-											"{}: Child operations queue overflow, dropping the operation", toString());
+						if (! childOpsQueue.offer(nextSubOp)) {
+							Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
 							return false;
 						}
 					}
@@ -170,9 +183,8 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 				if (parentOp.allSubOperationsDone()) {
 					// execute once again to finalize the things if necessary:
 					// complete the multipart upload, for example
-					if (!childOpQueue.offer((O) parentOp)) {
-						Loggers.ERR.warn(
-										"{}: Child operations queue overflow, dropping the operation", toString());
+					if (! childOpsQueue.offer((O) parentOp)) {
+						Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
 						return false;
 					}
 				}
@@ -185,7 +197,8 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 
 	@Override
 	protected void doShutdown() {
-		opDispatchTask.stop();
+		incomingOpsDispatchTask.stop();
+		childOpsDispatchTask.stop();
 		Loggers.MSG.debug("{}: shut down", toString());
 	}
 
@@ -199,9 +212,10 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		try (final var logCtx = CloseableThreadContext.put(KEY_STEP_ID, stepId)
 						.put(KEY_CLASS_NAME, StorageDriverBase.class.getSimpleName())) {
 			super.doClose();
-			opDispatchTask.close();
-			childOpQueue.clear();
-			inOpQueue.clear();
+			incomingOpsDispatchTask.close();
+			incomingOpsQueue.clear();
+			childOpsDispatchTask.close();
+			childOpsQueue.clear();
 		}
 	}
 }
