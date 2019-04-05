@@ -37,8 +37,6 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 	private final CoopStorageDriverBase<I, O> storageDriver;
 	private final Lock buffLock;
 
-	private volatile int n = 0; // the current count of the load operations in the buffer
-
 	public OperationDispatchTask(
 		final FibersExecutor executor, final CoopStorageDriverBase<I, O> storageDriver,
 		final BlockingQueue<O> incomingOpsQueue, final String stepId, final int batchSize
@@ -65,10 +63,9 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 
 	@Override
 	protected final void invokeTimedExclusively(final long startTimeNanos) {
-
 		ThreadContext.put(KEY_STEP_ID, stepId);
 		ThreadContext.put(KEY_CLASS_NAME, CLS_NAME);
-
+		var n = incomingOps.size();
 		try {
 			// new tasks
 			if (n < batchSize) {
@@ -83,13 +80,11 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 				if (n == 1) { // non-batch mode
 					if (storageDriver.submit(incomingOps.get(0))) {
 						incomingOps.clear();
-						n--;
 					}
 				} else { // batch mode
 					final int m = storageDriver.submit(incomingOps, 0, n);
 					if (m > 0) {
 						incomingOps.removeFirst(m);
-						n -= m;
 					}
 				}
 			}
