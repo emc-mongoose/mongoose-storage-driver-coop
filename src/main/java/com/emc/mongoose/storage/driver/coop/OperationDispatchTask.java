@@ -37,7 +37,7 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 	private final CoopStorageDriverBase<I, O> storageDriver;
 	private final Lock buffLock;
 
-	private int n = 0; // the current count of the load operations in the buffer
+	private volatile int n = 0; // the current count of the load operations in the buffer
 
 	public OperationDispatchTask(
 		final FibersExecutor executor, final CoopStorageDriverBase<I, O> storageDriver,
