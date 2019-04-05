@@ -2,7 +2,6 @@ package com.emc.mongoose.storage.driver.coop;
 
 import static com.emc.mongoose.base.Constants.KEY_CLASS_NAME;
 import static com.emc.mongoose.base.Constants.KEY_STEP_ID;
-import static com.emc.mongoose.base.item.op.Operation.Status.ACTIVE;
 import static com.github.akurilov.commons.lang.Exceptions.throwUnchecked;
 
 import com.emc.mongoose.base.concurrent.ServiceTaskExecutor;
@@ -24,6 +23,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
+
 import org.apache.logging.log4j.CloseableThreadContext;
 
 public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<I>>
@@ -157,14 +157,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 
 	@SuppressWarnings("unchecked")
 	protected final boolean handleCompleted(final O op) {
-		if(ACTIVE.equals(op.status())) {
-			if (childOpsQueue.offer(op)) {
-				return true;
-			} else {
-				Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
-				return false;
-			}
-		} else if (super.handleCompleted(op)) {
+		if (super.handleCompleted(op)) {
 			completedOpCount.increment();
 			if (op instanceof CompositeOperation) {
 				final var parentOp = (CompositeOperation) op;
