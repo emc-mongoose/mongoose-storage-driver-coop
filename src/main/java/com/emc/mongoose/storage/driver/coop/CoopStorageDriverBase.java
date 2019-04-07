@@ -38,7 +38,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 	private final BlockingQueue<O> incomingOpsQueue;
 	private final LongAdder scheduledOpCount = new LongAdder();
 	private final LongAdder completedOpCount = new LongAdder();
-	private final OperationDispatchTask incomingOpsDispatchTask;
+	protected final OperationDispatchTask incomingOpsDispatchTask;
 
 	protected CoopStorageDriverBase(
 					final String testStepId,
