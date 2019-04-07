@@ -168,6 +168,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 				if (!parentOp.allSubOperationsDone()) {
 					final List<O> subOps = parentOp.subOperations();
 					for (final O nextSubOp : subOps) {
+						nextSubOp.status(ACTIVE);
 						if (! incomingOpsQueue.offer(nextSubOp)) {
 							Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
 							return false;
@@ -180,6 +181,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 				if (parentOp.allSubOperationsDone()) {
 					// execute once again to finalize the things if necessary:
 					// complete the multipart upload, for example
+					parentOp.status(ACTIVE);
 					if (! incomingOpsQueue.offer((O) parentOp)) {
 						Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
 						return false;
