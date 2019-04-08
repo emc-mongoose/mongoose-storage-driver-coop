@@ -40,19 +40,19 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 
 	public OperationDispatchTask(
 		final FibersExecutor executor, final CoopStorageDriverBase<I, O> storageDriver,
-		final BlockingQueue<O> incomingOpsQueue, final String stepId, final int batchSize
+		final BlockingQueue<O> inOpQueue, final BlockingQueue<O> childOpQueue, final String stepId,
+		final int batchSize
 	) {
 		this(
-			executor, new CircularArrayBuffer<>(batchSize), new ReentrantLock(), storageDriver, incomingOpsQueue,
+			executor, new CircularArrayBuffer<>(batchSize), new ReentrantLock(), storageDriver, inOpQueue, childOpQueue,
 			stepId, batchSize
 		);
 	}
 
 	private OperationDispatchTask(
-		final FibersExecutor executor, final CircularBuffer<O> incomingOps, final Lock buffLock,
-		final CoopStorageDriverBase<I, O> storageDriver, final BlockingQueue<O> incomingOpsQueue, final String stepId,
-		final int batchSize
-	) {
+					final FibersExecutor executor, final CircularBuffer<O> buff, final Lock buffLock,
+					final CoopStorageDriverBase<I, O> storageDriver, final BlockingQueue<O> inOpQueue,
+					final BlockingQueue<O> childOpQueue, final String stepId, final int batchSize) {
 		super(executor, buffLock);
 		this.buff = buff;
 		this.buffLock = buffLock;
@@ -67,7 +67,7 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 	protected final void invokeTimedExclusively(final long startTimeNanos) {
 		ThreadContext.put(KEY_STEP_ID, stepId);
 		ThreadContext.put(KEY_CLASS_NAME, CLS_NAME);
-		var n = incomingOps.size();
+		var n = inOpQueue.size();
 		try {
 			// child ops go first
 			if (n < batchSize) {
@@ -90,13 +90,11 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 				if (n == 1) { // non-batch mode
 					if (storageDriver.submit(buff.get(0))) {
 						buff.clear();
-						n--;
 					}
 				} else { // batch mode
 					final int m = storageDriver.submit(buff, 0, n);
 					if (m > 0) {
 						buff.removeFirst(m);
-						n -= m;
 					}
 				}
 			}

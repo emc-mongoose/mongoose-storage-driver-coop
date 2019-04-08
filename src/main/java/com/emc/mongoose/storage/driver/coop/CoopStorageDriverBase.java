@@ -48,7 +48,8 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		this.inOpQueue = new ArrayBlockingQueue<>(inQueueLimit);
 		this.concurrencyThrottle = new Semaphore(concurrencyLimit > 0 ? concurrencyLimit : Integer.MAX_VALUE, true);
 		this.opDispatchTask = new OperationDispatchTask<>(
-						ServiceTaskExecutor.INSTANCE, this, inOpQueue, childOpQueue, stepId, batchSize);
+			ServiceTaskExecutor.INSTANCE, this, inOpQueue, childOpQueue, stepId, batchSize
+		);
 	}
 
 	@Override
