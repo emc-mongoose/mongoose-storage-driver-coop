@@ -36,7 +36,7 @@ ext {
 		javaCommons        : "2.3.5",
 		junit              : "4.12",
 		log4j              : "2.8.2",
-		mongooseBase       : "4.2.7",
+		mongooseBase       : "4.2.8",
 		scala              : "2.12.6",
 		slf4j              : "1.7.25",
 	]
