@@ -33,7 +33,7 @@ ext {
 	depVersion = [
 		confuse            : "1.2.1",
 		fiber4j            : "1.1.0",
-		javaCommons        : "2.3.5",
+		javaCommons        : "2.3.6",
 		junit              : "4.12",
 		log4j              : "2.8.2",
 		mongooseBase       : "4.2.8",
