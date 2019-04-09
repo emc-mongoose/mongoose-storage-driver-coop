@@ -32,31 +32,33 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 
 	private final String stepId;
 	private final int batchSize;
-	private final BlockingQueue<O> incomingOpsQueue;
-	private final CircularBuffer<O> incomingOps;
+	private final BlockingQueue<O> childOpQueue;
+	private final BlockingQueue<O> inOpQueue;
 	private final CoopStorageDriverBase<I, O> storageDriver;
+	private final CircularBuffer<O> buff;
 	private final Lock buffLock;
 
 	public OperationDispatchTask(
 		final FibersExecutor executor, final CoopStorageDriverBase<I, O> storageDriver,
-		final BlockingQueue<O> incomingOpsQueue, final String stepId, final int batchSize
+		final BlockingQueue<O> inOpQueue, final BlockingQueue<O> childOpQueue, final String stepId,
+		final int batchSize
 	) {
 		this(
-			executor, new CircularArrayBuffer<>(batchSize), new ReentrantLock(), storageDriver, incomingOpsQueue,
+			executor, new CircularArrayBuffer<>(batchSize), new ReentrantLock(), storageDriver, inOpQueue, childOpQueue,
 			stepId, batchSize
 		);
 	}
 
 	private OperationDispatchTask(
-		final FibersExecutor executor, final CircularBuffer<O> incomingOps, final Lock buffLock,
-		final CoopStorageDriverBase<I, O> storageDriver, final BlockingQueue<O> incomingOpsQueue, final String stepId,
-		final int batchSize
-	) {
+					final FibersExecutor executor, final CircularBuffer<O> buff, final Lock buffLock,
+					final CoopStorageDriverBase<I, O> storageDriver, final BlockingQueue<O> inOpQueue,
+					final BlockingQueue<O> childOpQueue, final String stepId, final int batchSize) {
 		super(executor, buffLock);
-		this.incomingOps = incomingOps;
+		this.buff = buff;
 		this.buffLock = buffLock;
 		this.storageDriver = storageDriver;
-		this.incomingOpsQueue = incomingOpsQueue;
+		this.inOpQueue = inOpQueue;
+		this.childOpQueue = childOpQueue;
 		this.stepId = stepId;
 		this.batchSize = batchSize;
 	}
@@ -65,11 +67,19 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 	protected final void invokeTimedExclusively(final long startTimeNanos) {
 		ThreadContext.put(KEY_STEP_ID, stepId);
 		ThreadContext.put(KEY_CLASS_NAME, CLS_NAME);
-		var n = incomingOps.size();
+		var n = inOpQueue.size();
 		try {
+			// child ops go first
+			if (n < batchSize) {
+				n += childOpQueue.drainTo(buff, batchSize - n);
+			}
+			// check for the fiber invocation timeout
+			if (SOFT_DURATION_LIMIT_NANOS <= System.nanoTime() - startTimeNanos) {
+				return;
+			}
 			// new tasks
 			if (n < batchSize) {
-				n += incomingOpsQueue.drainTo(incomingOps, batchSize - n);
+				n += inOpQueue.drainTo(buff, batchSize - n);
 			}
 			// check for the fiber invocation timeout
 			if (SOFT_DURATION_LIMIT_NANOS <= System.nanoTime() - startTimeNanos) {
@@ -78,13 +88,13 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 			// submit the tasks if any
 			if (n > 0) {
 				if (n == 1) { // non-batch mode
-					if (storageDriver.submit(incomingOps.get(0))) {
-						incomingOps.clear();
+					if (storageDriver.submit(buff.get(0))) {
+						buff.clear();
 					}
 				} else { // batch mode
-					final int m = storageDriver.submit(incomingOps, 0, n);
+					final int m = storageDriver.submit(buff, 0, n);
 					if (m > 0) {
-						incomingOps.removeFirst(m);
+						buff.removeFirst(m);
 					}
 				}
 			}
@@ -101,7 +111,7 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 					 {
 		try {
 			if (buffLock.tryLock(WARN_DURATION_LIMIT_NANOS, TimeUnit.NANOSECONDS)) {
-				incomingOps.clear();
+				buff.clear();
 			} else {
 				Loggers.ERR.warn("BufferLock timeout on close");
 			}
