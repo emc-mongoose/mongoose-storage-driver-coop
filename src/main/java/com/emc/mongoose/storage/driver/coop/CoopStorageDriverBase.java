@@ -150,14 +150,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 
 	@SuppressWarnings("unchecked")
 	protected final boolean handleCompleted(final O op) {
-		if(ACTIVE.equals(op.status())) {
-			if (childOpQueue.offer(op)) {
-				return true;
-			} else {
-				Loggers.ERR.warn("{}: Child operations queue overflow, dropping the operation", toString());
-				return false;
-			}
-		} else if (super.handleCompleted(op)) {
+		if (super.handleCompleted(op)) {
 			completedOpCount.increment();
 			if (op instanceof CompositeOperation) {
 				final var parentOp = (CompositeOperation) op;
