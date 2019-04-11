@@ -67,7 +67,7 @@ public final class OperationDispatchTask<I extends Item, O extends Operation<I>>
 	protected final void invokeTimedExclusively(final long startTimeNanos) {
 		ThreadContext.put(KEY_STEP_ID, stepId);
 		ThreadContext.put(KEY_CLASS_NAME, CLS_NAME);
-		var n = inOpQueue.size();
+		var n = buff.size();
 		try {
 			// child ops go first
 			if (n < batchSize) {
