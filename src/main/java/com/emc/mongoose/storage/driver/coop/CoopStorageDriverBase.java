@@ -2,7 +2,6 @@ package com.emc.mongoose.storage.driver.coop;
 
 import static com.emc.mongoose.base.Constants.KEY_CLASS_NAME;
 import static com.emc.mongoose.base.Constants.KEY_STEP_ID;
-import static com.emc.mongoose.base.item.op.Operation.Status.ACTIVE;
 import static com.github.akurilov.commons.lang.Exceptions.throwUnchecked;
 import com.emc.mongoose.base.concurrent.ServiceTaskExecutor;
 import com.emc.mongoose.base.data.DataInput;
@@ -11,19 +10,24 @@ import com.emc.mongoose.base.item.Item;
 import com.emc.mongoose.base.item.op.Operation;
 import com.emc.mongoose.base.item.op.composite.CompositeOperation;
 import com.emc.mongoose.base.item.op.partial.PartialOperation;
+import com.emc.mongoose.base.logging.LogUtil;
 import com.emc.mongoose.base.logging.Loggers;
 import com.emc.mongoose.base.storage.driver.StorageDriver;
 import com.emc.mongoose.base.storage.driver.StorageDriverBase;
+
 import com.github.akurilov.confuse.Config;
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
+
 import org.apache.logging.log4j.CloseableThreadContext;
+import org.apache.logging.log4j.Level;
 
 public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<I>>
 				extends StorageDriverBase<I, O> implements StorageDriver<I, O> {
@@ -33,7 +37,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 	private final BlockingQueue<O> inOpQueue;
 	private final LongAdder scheduledOpCount = new LongAdder();
 	private final LongAdder completedOpCount = new LongAdder();
-	private final OperationDispatchTask opDispatchTask;
+	private final List<OperationDispatchTask> opDispatchTasks;
 
 	protected CoopStorageDriverBase(
 					final String testStepId,
@@ -43,18 +47,24 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 					final int batchSize)
 					throws IllegalConfigurationException {
 		super(testStepId, dataInput, storageConfig, verifyFlag);
-		final var inQueueLimit = storageConfig.intVal("driver-limit-queue-input");
+		final var driverConfig = storageConfig.configVal("driver");
+		final var inQueueLimit = driverConfig.intVal("limit-queue-input");
 		this.childOpQueue = new ArrayBlockingQueue<>(inQueueLimit);
 		this.inOpQueue = new ArrayBlockingQueue<>(inQueueLimit);
 		this.concurrencyThrottle = new Semaphore(concurrencyLimit > 0 ? concurrencyLimit : Integer.MAX_VALUE, true);
-		this.opDispatchTask = new OperationDispatchTask<>(
-			ServiceTaskExecutor.INSTANCE, this, inOpQueue, childOpQueue, stepId, batchSize
-		);
+		final var opDispatcherCount = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+		this.opDispatchTasks = new ArrayList<>(opDispatcherCount);
+		for(int i = 0; i < opDispatcherCount; i ++) {
+			final var opDisptacher = new OperationDispatchTask<>(
+				ServiceTaskExecutor.INSTANCE, this, inOpQueue, childOpQueue, stepId, batchSize
+			);
+			opDispatchTasks.add(opDisptacher);
+		}
 	}
 
 	@Override
 	protected void doStart() throws IllegalStateException {
-		opDispatchTask.start();
+		opDispatchTasks.forEach(OperationDispatchTask::start);
 	}
 
 	@Override
@@ -185,7 +195,7 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 
 	@Override
 	protected void doShutdown() {
-		opDispatchTask.stop();
+		opDispatchTasks.forEach(OperationDispatchTask::stop);
 		Loggers.MSG.debug("{}: shut down", toString());
 	}
 
@@ -199,7 +209,13 @@ public abstract class CoopStorageDriverBase<I extends Item, O extends Operation<
 		try (final var logCtx = CloseableThreadContext.put(KEY_STEP_ID, stepId)
 						.put(KEY_CLASS_NAME, StorageDriverBase.class.getSimpleName())) {
 			super.doClose();
-			opDispatchTask.close();
+			opDispatchTasks.parallelStream().forEach(task -> {
+				try {
+					task.close();
+				} catch(final IOException e) {
+					LogUtil.exception(Level.WARN, e, "{}: failed to close the op dispatch task", stepId);
+				}
+			});
 			childOpQueue.clear();
 			inOpQueue.clear();
 		}
